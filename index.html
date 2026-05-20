@@ -1,0 +1,1830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base href="/AdvancedBrawlDrafterBot/">
+<title>BrawlDraft — Masters Draft Assistant</title>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&family=Unbounded:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#05070d;
+  --bg1:#080c15;
+  --bg2:#0c1020;
+  --bg3:#101628;
+  --bg4:#141c32;
+  --border:#1a2240;
+  --border2:#243060;
+  --gold:#e8a820;
+  --gold2:#f5c842;
+  --gold-dim:rgba(232,168,32,.10);
+  --gold-glow:rgba(232,168,32,.25);
+  --cyan:#00d4ff;
+  --cyan-dim:rgba(0,212,255,.08);
+  --red:#ff3d5a;
+  --red-dim:rgba(255,61,90,.08);
+  --green:#00e87a;
+  --green-dim:rgba(0,232,122,.08);
+  --purple:#b44dff;
+  --text:#bcc8e8;
+  --text2:#6878a8;
+  --text3:#303858;
+  --mono:'Space Mono',monospace;
+  --display:'Unbounded',sans-serif;
+  --body:'Syne',sans-serif;
+  --r:6px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--body);font-size:14px;overflow-x:hidden}
+
+/* ── NOISE OVERLAY ── */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  opacity:.4;
+}
+
+#app{display:flex;flex-direction:column;height:100vh;position:relative;z-index:1}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;gap:18px;padding:0 20px;height:48px;
+  background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;
+  position:relative;
+}
+header::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent 0%,var(--gold) 40%,var(--cyan) 60%,transparent 100%);
+  opacity:.35;
+}
+.logo{
+  font-family:var(--display);font-size:1rem;font-weight:900;letter-spacing:2px;
+  color:var(--gold);text-transform:uppercase;
+}
+.logo-sub{font-weight:300;color:var(--text2);letter-spacing:1px}
+.nn-badge{
+  display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:20px;
+  border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.06);
+  font-family:var(--mono);font-size:.6rem;color:var(--cyan);letter-spacing:1px;
+}
+.nn-badge-dot{
+  width:5px;height:5px;border-radius:50%;background:var(--text3);
+  transition:background .3s,box-shadow .3s;
+}
+.nn-badge-dot.live{background:var(--cyan);box-shadow:0 0 6px var(--cyan)}
+.meta-bar{margin-left:auto;display:flex;gap:14px;align-items:center}
+.meta-item{font-family:var(--mono);font-size:.62rem;color:var(--text3);letter-spacing:.5px}
+.meta-item b{color:var(--gold);font-weight:700}
+
+/* ── NAV ── */
+nav{
+  display:flex;gap:1px;padding:6px 20px 0;
+  background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.nav-tab{
+  font-family:var(--display);font-size:.65rem;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;padding:6px 16px;border:none;background:none;
+  color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;
+  margin-bottom:-1px;transition:all .15s;
+}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+
+main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.tab-content{display:none;flex:1;overflow:auto;flex-direction:column}
+.tab-content.active{display:flex}
+
+/* ── CTX BAR ── */
+.ctx-bar{
+  display:flex;align-items:center;gap:10px;padding:8px 20px;
+  background:var(--bg1);border-bottom:1px solid var(--border);
+  flex-shrink:0;flex-wrap:wrap;
+}
+.ctx-label{font-family:var(--mono);font-size:.6rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px}
+.ctx-select{
+  background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:.7rem;padding:4px 8px;border-radius:var(--r);
+  cursor:pointer;outline:none;transition:border-color .15s;
+}
+.ctx-select:focus{border-color:var(--gold)}
+
+/* ── LOADING ── */
+#tab-loading{align-items:center;justify-content:center;gap:14px}
+.spinner{
+  width:36px;height:36px;border:2px solid var(--border2);
+  border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-text{font-family:var(--mono);font-size:.75rem;color:var(--text3)}
+
+/* ── NN LOADING STATE ── */
+#nn-loading-bar{
+  position:fixed;bottom:0;left:0;width:0%;height:2px;
+  background:linear-gradient(90deg,var(--gold),var(--cyan));
+  transition:width .5s;z-index:100;
+}
+
+/* ── DRAFT LAYOUT ── */
+.draft-layout{display:flex;flex-direction:row;flex:1;overflow:hidden;min-height:0}
+.draft-left{
+  width:155px;flex-shrink:0;border-right:1px solid var(--border);
+  overflow-y:auto;display:flex;flex-direction:column;
+}
+.draft-section{padding:8px 10px;border-bottom:1px solid var(--border)}
+.draft-section-label{
+  font-family:var(--display);font-size:.58rem;font-weight:700;
+  letter-spacing:1.5px;text-transform:uppercase;margin-bottom:5px;
+}
+.draft-center{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.draft-right{width:250px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+
+/* ── ORDER BAR ── */
+.order-bar{
+  display:flex;align-items:center;gap:3px;padding:5px 14px;
+  background:var(--bg1);border-bottom:1px solid var(--border);
+  flex-shrink:0;overflow-x:auto;
+}
+.order-slot{
+  display:flex;flex-direction:column;align-items:center;gap:1px;
+  padding:3px 5px;border-radius:var(--r);border:1px solid var(--border);
+  background:var(--bg2);min-width:46px;flex-shrink:0;
+}
+.order-slot.current{border-color:var(--gold);background:var(--gold-dim);box-shadow:0 0 8px var(--gold-glow)}
+.order-slot.done{opacity:.3}
+.order-slot.ban-type{border-color:rgba(255,61,90,.3);background:rgba(255,61,90,.05)}
+.order-slot.ban-type.current{border-color:var(--red);background:var(--red-dim)}
+.os-label{font-size:.5rem;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono)}
+.os-team{font-size:.58rem;font-weight:700;letter-spacing:.5px;font-family:var(--display)}
+.os-brawler{font-size:.55rem;color:var(--text2);max-width:52px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-family:var(--mono)}
+
+/* ── SLOT ITEMS ── */
+.slot-item{
+  border-radius:var(--r);padding:4px 7px;display:flex;align-items:center;
+  gap:5px;min-height:28px;margin-bottom:2px;font-size:.72rem;
+  cursor:default;transition:background .1s;
+}
+.slot-item.ally-pick{border:1px solid var(--border2);background:var(--bg3)}
+.slot-item.ally-ban{border:1px solid rgba(255,61,90,.25);background:rgba(255,61,90,.05)}
+.slot-item.enemy-pick{border:1px solid rgba(255,61,90,.2);background:rgba(255,61,90,.04)}
+.slot-item.enemy-ban{border:1px solid rgba(255,61,90,.15);background:rgba(255,61,90,.03)}
+.slot-name{font-family:var(--display);font-weight:700;font-size:.72rem;flex:1}
+.slot-empty{color:var(--text3);font-size:.65rem;font-family:var(--mono);font-style:italic}
+.slot-wr{font-family:var(--mono);font-size:.58rem}
+.slot-remove{
+  opacity:0;background:none;border:none;color:var(--red);cursor:pointer;
+  font-size:.75rem;padding:0 1px;line-height:1;transition:opacity .1s;
+}
+.slot-item:hover .slot-remove{opacity:1}
+
+/* ── SUGGESTIONS ── */
+.sug-header{
+  padding:7px 12px;background:var(--bg1);border-bottom:1px solid var(--border);
+  flex-shrink:0;display:flex;align-items:center;gap:8px;
+}
+.sug-title{
+  font-family:var(--display);font-weight:700;font-size:.82rem;
+  letter-spacing:1px;color:var(--gold);flex:1;
+}
+.sug-mode-badge{
+  font-family:var(--mono);font-size:.58rem;padding:2px 6px;border-radius:3px;
+  border:1px solid var(--border2);color:var(--text3);
+}
+.sug-hint{font-family:var(--mono);font-size:.58rem;color:var(--text3)}
+.sug-list{flex:1;overflow-y:auto;padding:5px 7px}
+.no-picks{
+  color:var(--text3);font-family:var(--mono);font-size:.72rem;
+  text-align:center;padding:18px;
+}
+
+/* ── WIN METER ── */
+.win-meter-wrap{
+  display:none;align-items:center;gap:6px;
+  padding:5px 12px;background:var(--bg2);border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.win-meter-label{font-family:var(--mono);font-size:.55rem;color:var(--text3);letter-spacing:1px}
+.win-meter-track{
+  flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden;
+  border:1px solid var(--border);
+}
+.win-meter-fill{height:100%;border-radius:3px;transition:width .5s,background .5s;width:50%;background:var(--gold)}
+.win-meter-pct{font-family:var(--mono);font-size:.82rem;font-weight:700;color:var(--gold);min-width:36px}
+.win-meter-src{font-family:var(--mono);font-size:.5rem;color:var(--text3);border:1px solid var(--border);padding:1px 4px;border-radius:3px}
+
+/* ── SUGGESTION ROWS ── */
+.sg-row{
+  display:flex;align-items:center;gap:7px;padding:5px 9px;border-radius:var(--r);
+  background:var(--bg2);margin-bottom:2px;cursor:pointer;
+  transition:background .1s,border-color .1s;
+  border:1px solid var(--border);border-left:2px solid var(--gold);
+  position:relative;overflow:hidden;
+}
+.sg-row::before{
+  content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--gold-dim),transparent 40%);
+  opacity:0;transition:opacity .15s;
+}
+.sg-row:hover::before{opacity:1}
+.sg-row:hover{background:var(--bg3)}
+.sg-row.ban-row{border-left-color:var(--red)}
+.sg-row.ban-row::before{background:linear-gradient(90deg,var(--red-dim),transparent 40%)}
+.sg-rank{font-family:var(--mono);font-size:.58rem;color:var(--text3);width:14px;text-align:right;flex-shrink:0}
+.sg-thumb{
+  width:30px;height:22px;object-fit:contain;flex-shrink:0;border-radius:3px;
+  image-rendering:crisp-edges;
+}
+.sg-name{font-family:var(--display);font-weight:700;font-size:.88rem;flex:1;letter-spacing:.5px}
+.sg-warn{font-family:var(--mono);font-size:.5rem;color:var(--red);margin-left:2px}
+.sg-tier{font-size:.58rem;font-weight:700;flex-shrink:0;font-family:var(--mono)}
+.sg-stats{display:flex;gap:5px;flex-shrink:0;align-items:center}
+.sg-chip{
+  display:flex;align-items:center;gap:2px;
+  background:var(--bg3);border:1px solid var(--border);border-radius:3px;
+  padding:1px 4px;
+}
+.sg-chip-lbl{font-family:var(--mono);font-size:.48rem;color:var(--text3)}
+.sg-chip-val{font-family:var(--mono);font-size:.62rem;font-weight:700}
+.sg-nn-score{
+  font-family:var(--mono);font-size:.7rem;font-weight:700;min-width:38px;text-align:right;
+}
+.sg-loading{
+  text-align:center;padding:12px;color:var(--text3);font-family:var(--mono);font-size:.7rem;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.sg-loading-spinner{
+  width:14px;height:14px;border:1px solid var(--border2);border-top-color:var(--cyan);
+  border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0;
+}
+
+/* ── BRAWLER GRID ── */
+.grid-toolbar{
+  padding:7px 8px;display:flex;gap:6px;align-items:center;
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.grid-search{
+  background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:.7rem;padding:3px 7px;border-radius:var(--r);
+  outline:none;width:90px;transition:border-color .15s;
+}
+.grid-search:focus{border-color:var(--gold)}
+.grid-search::placeholder{color:var(--text3)}
+.filter-btn{
+  font-family:var(--mono);font-size:.6rem;padding:2px 7px;border:1px solid var(--border);
+  border-radius:var(--r);background:var(--bg2);color:var(--text3);cursor:pointer;transition:all .12s;
+}
+.filter-btn.on{background:var(--gold-dim);border-color:var(--gold);color:var(--gold)}
+.brawler-grid{flex:1;overflow-y:auto;padding:5px;display:grid;grid-template-columns:repeat(4,1fr);gap:3px}
+.bc{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);cursor:pointer;
+  transition:all .1s;padding:3px 2px;position:relative;overflow:hidden;min-height:62px;
+}
+.bc:hover{border-color:var(--gold);background:var(--bg3)}
+.bc::after{content:'';position:absolute;inset:0;background:transparent;transition:background .1s}
+.bc.ally{border-color:var(--cyan);background:var(--cyan-dim)}
+.bc.ally::after{background:rgba(0,212,255,.04)}
+.bc.enemy{border-color:var(--red);background:var(--red-dim)}
+.bc.enemy::after{background:rgba(255,61,90,.04)}
+.bc.unavailable{opacity:.2;pointer-events:none}
+.bc-img{width:85%;height:46px;object-fit:contain;flex-shrink:0;image-rendering:crisp-edges}
+.bc-name{font-family:var(--display);font-size:.55rem;font-weight:700;letter-spacing:.3px;text-align:center;line-height:1.1}
+.bc-wr{font-family:var(--mono);font-size:.5rem;color:var(--text3)}
+.bc-tier{position:absolute;top:1px;right:2px;font-family:var(--mono);font-size:.5rem;font-weight:700}
+.tier-S{color:#ff5555}.tier-A{color:#ffaa44}.tier-B{color:#f5c842}.tier-C{color:var(--green)}.tier-D{color:var(--cyan)}.tier-F{color:var(--text3)}
+
+/* ── STATS / MATCHUP TABLES ── */
+.mu-wrap{flex:1;overflow:auto;border:1px solid var(--border);border-radius:var(--r)}
+#mu-table,#syn-table{border-collapse:collapse;font-size:.65rem;white-space:nowrap;width:100%}
+#mu-table th,#mu-table td,#syn-table th,#syn-table td{padding:3px 6px;border:1px solid rgba(26,34,64,.8)}
+#mu-table thead th,#syn-table thead th{
+  position:sticky;top:0;background:var(--bg1);z-index:2;
+  font-family:var(--display);color:var(--gold);text-align:center;font-size:.65rem;font-weight:700;
+}
+#mu-table thead th:first-child,#syn-table thead th:first-child{left:0;z-index:3;text-align:left}
+#mu-table tbody th,#syn-table tbody th{
+  position:sticky;left:0;background:var(--bg1);font-family:var(--display);
+  color:var(--gold);font-size:.65rem;z-index:1;font-weight:700;
+}
+#mu-table td,#syn-table td{text-align:center;font-weight:600;font-family:var(--mono);min-width:44px;cursor:default}
+#mu-table td.self,#syn-table td.self{background:var(--bg2);color:var(--text3)}
+#mu-table td.nd,#syn-table td.nd{color:var(--text3);opacity:.3}
+
+/* ── STATS PANELS ── */
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.stat-panel{background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:14px}
+.stat-panel-title{font-family:var(--display);font-size:.8rem;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold);margin-bottom:10px}
+.hbar-row{display:grid;grid-template-columns:100px 1fr 48px;align-items:center;gap:7px;margin-bottom:4px}
+.hbar-name{font-size:.72rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display)}
+.hbar-track{height:12px;background:var(--bg);border-radius:3px;overflow:hidden}
+.hbar-fill{height:100%;border-radius:3px;display:flex;align-items:center;padding-left:4px;font-size:.55rem;font-weight:700;color:rgba(0,0,0,.7)}
+.hbar-val{font-family:var(--mono);font-size:.65rem;text-align:right;font-weight:600}
+.summary-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+.summary-card{background:var(--bg1);border:1px solid var(--border);border-radius:8px;padding:12px;position:relative;overflow:hidden}
+.summary-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent,var(--gold))}
+.sc-val{font-family:var(--mono);font-size:1.2rem;font-weight:700;color:var(--accent,var(--gold));line-height:1}
+.sc-label{font-size:.62rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:4px;font-family:var(--mono)}
+
+/* ── OVERRIDES ── */
+.tbl-search{
+  background:var(--bg2);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:.7rem;padding:3px 7px;border-radius:var(--r);outline:none;
+}
+.tbl-search:focus{border-color:var(--gold)}
+
+/* ── TIER LIST ── */
+.tier-row{display:flex;gap:0;margin-bottom:4px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;min-height:50px}
+.tier-label{width:42px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:1.3rem;font-weight:900}
+.tier-cells{flex:1;display:flex;flex-wrap:wrap;gap:3px;padding:5px;border-left:1px solid var(--border);min-height:50px;align-content:flex-start}
+.tier-cell{
+  display:flex;align-items:center;gap:3px;border:1px solid var(--border2);border-radius:3px;
+  padding:2px 6px;background:var(--bg3);cursor:grab;font-family:var(--display);
+  font-size:.75rem;font-weight:600;transition:all .1s;user-select:none;
+}
+.tier-cell:hover{border-color:var(--gold)}
+.tier-cell.dragging{opacity:.3;cursor:grabbing}
+.untiered-pool{display:flex;flex-wrap:wrap;gap:3px;padding:7px;border:1px dashed var(--border);border-radius:var(--r);min-height:40px;margin-bottom:12px}
+.action-btn{
+  font-family:var(--mono);font-size:.68rem;padding:4px 10px;border:1px solid var(--border);
+  border-radius:var(--r);background:var(--bg2);color:var(--text2);cursor:pointer;transition:all .12s;
+}
+.action-btn:hover{border-color:var(--gold);color:var(--gold)}
+.action-btn.primary{background:var(--gold-dim);border-color:var(--gold);color:var(--gold)}
+
+/* ── MAP TIERS ── */
+.sec-hdr{
+  font-family:var(--display);font-size:.85rem;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;color:var(--gold);display:flex;align-items:center;gap:8px;margin-bottom:10px;
+}
+.sec-hdr::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── COMP BUILDER ── */
+.comp-row{
+  background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;
+  display:flex;align-items:center;gap:10px;margin-bottom:4px;
+}
+
+/* ── SCROLLBARS ── */
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+.hidden{display:none!important}
+
+/* ── ANIMATIONS ── */
+@keyframes fadeSlideIn{
+  from{opacity:0;transform:translateY(4px)}
+  to{opacity:1;transform:translateY(0)}
+}
+.sg-row{animation:fadeSlideIn .12s ease both}
+</style>
+</head>
+<body>
+<div id="nn-loading-bar"></div>
+<div id="app">
+  <header>
+    <div class="logo">BrawlDraft <span class="logo-sub">/ Masters</span></div>
+    <div class="nn-badge">
+      <div class="nn-badge-dot" id="nn-dot"></div>
+      <span id="nn-status">Loading NN...</span>
+    </div>
+    <div class="meta-bar">
+      <div class="meta-item" id="meta-battles">BATTLES <b>—</b></div>
+      <div class="meta-item" id="meta-players">PLAYERS <b>—</b></div>
+      <div class="meta-item" id="meta-updated">UPDATED <b>—</b></div>
+    </div>
+  </header>
+  <nav>
+    <button class="nav-tab active" data-tab="draft">Draft</button>
+    <button class="nav-tab" data-tab="tier">Tier List</button>
+    <button class="nav-tab" data-tab="matchup">Matchups</button>
+    <button class="nav-tab" data-tab="stats">Stats</button>
+    <button class="nav-tab" data-tab="overrides">Overrides</button>
+    <button class="nav-tab" data-tab="tiermap">Map Tiers</button>
+    <button class="nav-tab" data-tab="synergy">Synergy</button>
+    <button class="nav-tab" data-tab="comp">Comp Builder</button>
+  </nav>
+  <main>
+
+    <!-- LOADING -->
+    <div id="tab-loading" class="tab-content active" style="align-items:center;justify-content:center;gap:14px">
+      <div class="spinner"></div>
+      <div class="load-text">Loading data...</div>
+    </div>
+
+    <!-- DRAFT -->
+    <div id="tab-draft" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Mode</span>
+        <select class="ctx-select" id="draft-mode"><option value="all|all">All Modes</option></select>
+        <span class="ctx-label">Map</span>
+        <select class="ctx-select" id="draft-map"><option value="">All Maps</option></select>
+        <span class="ctx-label">Side</span>
+        <select class="ctx-select" id="draft-side">
+          <option value="first">First Pick</option>
+          <option value="second">Second Pick</option>
+        </select>
+        <button class="action-btn" id="draft-reset" style="margin-left:auto">Reset Draft</button>
+      </div>
+      <div class="order-bar" id="draft-order-bar"></div>
+      <div class="draft-layout">
+        <!-- LEFT PANEL -->
+        <div class="draft-left">
+          <div class="draft-section">
+            <div class="draft-section-label" style="color:var(--red)">Your Bans</div>
+            <div id="ally-ban-slots"></div>
+          </div>
+          <div class="draft-section">
+            <div class="draft-section-label" style="color:var(--cyan)">Your Team</div>
+            <div id="ally-slots"></div>
+          </div>
+          <div class="draft-section">
+            <div class="draft-section-label" style="color:var(--red);opacity:.6">Enemy Bans</div>
+            <div id="enemy-ban-slots"></div>
+          </div>
+          <div class="draft-section">
+            <div class="draft-section-label" style="color:var(--red)">Enemy Team</div>
+            <div id="enemy-slots"></div>
+          </div>
+        </div>
+
+        <!-- CENTER: SUGGESTIONS -->
+        <div class="draft-center">
+          <div class="win-meter-wrap" id="win-meter-wrap">
+            <span class="win-meter-label">WIN EST</span>
+            <div class="win-meter-track">
+              <div class="win-meter-fill" id="win-meter-fill"></div>
+            </div>
+            <span class="win-meter-pct" id="win-meter-pct">50%</span>
+            <span class="win-meter-src" id="win-meter-src">NN</span>
+          </div>
+          <div class="sug-header">
+            <div class="sug-title" id="sug-title">Suggestions</div>
+            <span class="sug-hint">Click to place</span>
+          </div>
+          <div class="sug-list" id="sug-list">
+            <div class="no-picks">Select mode &amp; map, then click brawlers to draft</div>
+          </div>
+        </div>
+
+        <!-- RIGHT: BRAWLER GRID -->
+        <div class="draft-right">
+          <div style="display:flex;flex-direction:column;overflow:hidden;flex:1">
+            <div class="grid-toolbar">
+              <input class="grid-search" id="grid-search" placeholder="Search..." type="text">
+              <button class="filter-btn on" data-f="all">All</button>
+              <button class="filter-btn" data-f="available">Free</button>
+            </div>
+            <div class="brawler-grid" id="brawler-grid"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TIER LIST -->
+    <div id="tab-tier" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Drag brawlers between tiers. Saved in browser.</span>
+        <div style="margin-left:auto;display:flex;gap:7px">
+          <button class="action-btn" id="tier-import-btn">Import</button>
+          <input type="file" id="tier-import-file" accept=".json" class="hidden">
+          <button class="action-btn primary" id="tier-export-btn">Export</button>
+        </div>
+      </div>
+      <div style="padding:14px 18px;flex:1;overflow-y:auto">
+        <div class="sec-hdr">Untiered</div>
+        <div class="untiered-pool" id="tier-untiered"></div>
+        <div id="tier-rows"></div>
+      </div>
+    </div>
+
+    <!-- MATCHUP -->
+    <div id="tab-matchup" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Mode</span>
+        <select class="ctx-select" id="mu-mode"><option value="all|all">All Modes</option></select>
+        <span class="ctx-label">Map</span>
+        <select class="ctx-select" id="mu-map"><option value="">All Maps</option></select>
+      </div>
+      <div style="padding:10px 18px;flex:1;display:flex;flex-direction:column;overflow:hidden;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap">
+          <span class="ctx-label">Search:</span>
+          <input class="tbl-search" id="mu-search" placeholder="e.g. EDGAR" style="width:120px">
+          <span class="ctx-label">Min games:</span>
+          <input class="tbl-search" id="mu-min" type="number" value="10" min="1" style="width:60px">
+          <button class="action-btn" id="mu-apply">Apply</button>
+          <button class="action-btn primary" id="mu-export-csv">Export CSV</button>
+          <span style="margin-left:auto;font-family:var(--mono);font-size:.62rem;color:var(--text3)">Row brawler WR vs column brawler</span>
+        </div>
+        <div class="mu-wrap"><table id="mu-table"></table></div>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div id="tab-stats" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Mode</span>
+        <select class="ctx-select" id="stats-mode"><option value="all|all">All Modes</option></select>
+        <span class="ctx-label">Map</span>
+        <select class="ctx-select" id="stats-map"><option value="">All Maps</option></select>
+      </div>
+      <div style="padding:14px 18px;flex:1;overflow-y:auto">
+        <div class="summary-cards" id="summary-cards"></div>
+        <div class="stats-grid">
+          <div class="stat-panel"><div class="stat-panel-title">Top Pick Rate</div><div id="pick-list"></div></div>
+          <div class="stat-panel"><div class="stat-panel-title">Best Win Rate <span style="font-size:.65rem;font-family:var(--mono);color:var(--text3)">(min 20)</span></div><div id="wr-list"></div></div>
+          <div class="stat-panel"><div class="stat-panel-title">Worst Win Rate <span style="font-size:.65rem;font-family:var(--mono);color:var(--text3)">(min 20)</span></div><div id="wrl-list"></div></div>
+          <div class="stat-panel"><div class="stat-panel-title">Least Picked</div><div id="lowpick-list"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OVERRIDES -->
+    <div id="tab-overrides" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Adjustments saved in browser. Export to back up.</span>
+        <div style="margin-left:auto;display:flex;gap:7px">
+          <button class="action-btn" id="ov-import-btn">Import</button>
+          <input type="file" id="ov-import-file" accept=".json" class="hidden">
+          <button class="action-btn primary" id="ov-export-btn">Export</button>
+          <button class="action-btn" id="ov-reset-btn" style="color:var(--red);border-color:rgba(255,61,90,.3)">Reset All</button>
+        </div>
+      </div>
+      <div style="padding:18px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:22px">
+        <div>
+          <div class="sec-hdr">Score Adjustments</div>
+          <p style="color:var(--text3);font-size:.7rem;margin-bottom:10px;font-family:var(--mono)">-20 to +20. Positive = stronger for NN score blending.</p>
+          <input class="tbl-search" id="ov-adj-search" placeholder="Search brawler..." style="width:170px;margin-bottom:8px">
+          <div id="ov-adj-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:5px"></div>
+        </div>
+        <div>
+          <div class="sec-hdr">Ban Priorities</div>
+          <div id="ov-ban-list" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+        </div>
+        <div>
+          <div class="sec-hdr">Matchup Overrides</div>
+          <div style="display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+            <select class="ctx-select" id="ov-mu-a" style="width:140px"><option value="">Brawler A</option></select>
+            <span style="color:var(--text3);font-family:var(--mono);font-size:.7rem">wins vs</span>
+            <select class="ctx-select" id="ov-mu-b" style="width:140px"><option value="">Brawler B</option></select>
+            <input class="tbl-search" id="ov-mu-wr" type="number" min="0" max="100" placeholder="Win%" style="width:70px">
+            <span style="color:var(--text3);font-family:var(--mono);font-size:.7rem">%</span>
+            <button class="action-btn primary" id="ov-mu-add">Add</button>
+          </div>
+          <div id="ov-mu-list"></div>
+        </div>
+        <div>
+          <div class="sec-hdr">Notes</div>
+          <textarea id="ov-notes" placeholder="Meta notes, patch changes..." style="width:100%;min-height:90px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:9px;color:var(--text);font-family:var(--mono);font-size:.72rem;resize:vertical;outline:none;line-height:1.5"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAP TIERS -->
+    <div id="tab-tiermap" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Mode</span>
+        <select class="ctx-select" id="tm-mode"><option value="all|all">All Modes</option></select>
+        <span class="ctx-label">Map</span>
+        <select class="ctx-select" id="tm-map"><option value="">All Maps</option></select>
+        <span class="ctx-label" style="margin-left:14px">Min picks:</span>
+        <input class="tbl-search" id="tm-min" type="number" value="50" min="1" style="width:60px">
+        <button class="action-btn" id="tm-apply" style="margin-left:4px">Refresh</button>
+      </div>
+      <div style="padding:14px 18px;flex:1;overflow-y:auto" id="tm-content">
+        <div class="no-picks">Select a mode to see tier list</div>
+      </div>
+    </div>
+
+    <!-- SYNERGY -->
+    <div id="tab-synergy" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Mode</span>
+        <select class="ctx-select" id="syn-mode"><option value="all|all">All Modes</option></select>
+        <span class="ctx-label">Map</span>
+        <select class="ctx-select" id="syn-map"><option value="">All Maps</option></select>
+      </div>
+      <div style="padding:10px 18px;flex:1;display:flex;flex-direction:column;overflow:hidden;gap:8px">
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap">
+          <span class="ctx-label">Search:</span>
+          <input class="tbl-search" id="syn-search" placeholder="e.g. EDGAR" style="width:120px">
+          <span class="ctx-label">Min games:</span>
+          <input class="tbl-search" id="syn-min" type="number" value="20" min="1" style="width:60px">
+          <button class="action-btn" id="syn-apply">Apply</button>
+          <span style="margin-left:auto;font-family:var(--mono);font-size:.62rem;color:var(--text3)">Win rate when row + column are on the same team</span>
+        </div>
+        <div class="mu-wrap"><table id="syn-table"></table></div>
+      </div>
+    </div>
+
+    <!-- COMP BUILDER -->
+    <div id="tab-comp" class="tab-content">
+      <div class="ctx-bar">
+        <span class="ctx-label">Mode</span>
+        <select class="ctx-select" id="comp-mode"><option value="all|all">All Modes</option></select>
+        <span class="ctx-label">Map</span>
+        <select class="ctx-select" id="comp-map"><option value="">All Maps</option></select>
+      </div>
+      <div style="padding:14px 18px;flex:1;overflow-y:auto">
+        <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-family:var(--mono);font-size:.62rem;color:var(--text3);margin-bottom:5px">BRAWLER 1 (required)</div>
+            <select class="ctx-select" id="comp-b1" style="width:170px"><option value="">Select brawler</option></select>
+          </div>
+          <div>
+            <div style="font-family:var(--mono);font-size:.62rem;color:var(--text3);margin-bottom:5px">BRAWLER 2 (optional)</div>
+            <select class="ctx-select" id="comp-b2" style="width:170px"><option value="">Any</option></select>
+          </div>
+          <button class="action-btn primary" id="comp-go">Find Best Comps</button>
+        </div>
+        <div id="comp-results"><div class="no-picks">Select a brawler and click Find Best Comps</div></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let META = null, OVERALL = null;
+let MODE_CACHE = {}, TIERLIST = {};
+let OVERRIDES = { adjustments:{}, banPriority:{}, matchups:{}, notes:'' };
+
+let draftAllies=[], draftEnemies=[], draftAllyBans=[], draftEnemyBans=[];
+let gridFilter='all', gridSearch='';
+let _renderToken=0, _scoreCache={};
+
+// NN state
+let NN_MODEL=null, NN_META=null, NN_ENABLED=false, NN_LOADING=false;
+let NN_LOAD_PROGRESS=0;
+
+const TIERS=['S','A','B','C','D','F'];
+const TIER_COLORS={S:'#ff5555',A:'#ffaa44',B:'#f5c842',C:'#00e87a',D:'#00d4ff',F:'#6878a8'};
+const TIER_BG={S:'#2a1010',A:'#2a1c08',B:'#2a2508',C:'#082a18',D:'#082028',F:'#10121e'};
+const MIN_GAMES=5, PRIOR=20;
+
+const ACTIVE_MAPS = {
+  brawlBall:["Backyard Bowl","Triple Dribble","Pinhole Punt","Sneaky Fields","Super Beach","Pinball Dreams","Center Stage","Beach Ball","Sunny Soccer","Priceless Cactus","Rooftop Runners","Grass Knot","Spiraling Out","Sidetrack","Flute Chutes","Grab the Moment","Singed Earth","Nutmeg","Goalies","No Good Deed"],
+  gemGrab:["Hard Rock Mine","Crystal Arcade","Deathcap Trap","Gem Fort","Undermine","Double Swoosh","Rustic Arcade","Open Space","Lilygear Lake","Local Restaurants","On a Roll","Storage Sector","Whisper Vale","Extreme Nonchalance","ATLAS","Afterparty","Railroad Robbery","Snake Pit","Fortress Fall","Picturesque","Satomi Springs","Ancestral Roots"],
+  knockout:["Goldarm Gulch","Belle's Rock","Deep End","Flaring Phoenix","Flowing Springs","New Perspective","Out in the Open","Healthy Middle Ground","New Horizons","Four Levels","H for...","Double Decker","Streets with No Name","Think Ahead","Call of the Water","Party for You","A Ballad About Minced Cutlets","Chivalry","Konnakol","Pinned Down","Opening Move","Crab Claws","Please Remain Standing"],
+  bounty:["Shooting Star","Hideout","Layer Cake","Dry Season","No Excuses","Don't turn around","Side by Side","Brace for Impact","Starrburst","Wall Hugging","Choral Chambers","Watermelons","Hit and Run"],
+  heist:["Kaboom Canyon","Safe Zone","Hot Potato","Bridge Too Far","Pit Stop","GG 2.0","Plain Text","Subway Turfers","Zip Zap Zoom","Corner Cave","All Things Wicked","Photic Doom","Aridity","Quintillion","Tuning Fork","Perpetual Motion","Eating Good!"],
+  hotZone:["Open Business","Parallel Plays","Ring of Fire","Dueling Beetles","Open Zone","Fishing Bed","Abracadabra","In the Liminal","Playmaker","Just Another Race To Anywhere","Back Shuffle","Zone Splitting","Ticket to Die","Tax Evasion","The Seven Pillars of Humanity","Golden Bay","Hyacinth House"],
+};
+
+const BRAWLER_IMG={
+  '8-BIT':'8-Bit','MR. P':'MrP','LARRY & LAWRIE':'Larry&Lawrie',
+  'EL PRIMO':'ElPrimo','COLONEL RUFFS':'Colonel-Ruffs','R-T':'R-T',
+};
+function brawlerImg(name){
+  if(BRAWLER_IMG[name]) return BRAWLER_IMG[name];
+  return name.split(' ').map(w=>w[0].toUpperCase()+w.slice(1).toLowerCase()).join('');
+}
+function imgUrl(name){ return 'https://cdn.brawlify.com/brawler-bs/'+brawlerImg(name)+'.png'; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA LOADING
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadData(){
+  try {
+    document.querySelector('.load-text').textContent='Loading meta...';
+    const mr=await fetch('data/meta.json'); if(!mr.ok) throw new Error('meta.json: HTTP '+mr.status);
+    META=await mr.json();
+    document.querySelector('.load-text').textContent='Loading stats ('+META.brawlers.length+' brawlers)...';
+    const or=await fetch('data/overall.json'); if(!or.ok) throw new Error('overall.json: HTTP '+or.status);
+    OVERALL=decodeCtx(await or.json());
+    onDataLoaded();
+  } catch(e){
+    console.error('loadData error:',e);
+    document.querySelector('.load-text').textContent='Failed: '+e.message;
+    document.querySelector('.spinner').style.display='none';
+  }
+}
+
+function decodeCtx(raw){
+  if(!raw||!META) return {bs:{},ms:{},pairs:{}};
+  const names=META.brawlers;
+  const bs={};
+  for(const [id,arr] of Object.entries(raw.bs||{})){
+    const n=names[id]; if(n) bs[n]={picks:arr[0],wins:arr[1],losses:arr[0]-arr[1]};
+  }
+  const ms={};
+  for(const [aid,vs] of Object.entries(raw.ms||{})){
+    const an=names[aid]; if(!an) continue;
+    ms[an]={};
+    for(const [bid,arr] of Object.entries(vs)){
+      const bn=names[bid]; if(bn) ms[an][bn]={wins:arr[0],losses:arr[1]};
+    }
+  }
+  const pairs={};
+  for(const [key,arr] of Object.entries(raw.pairs||{})){
+    const [aid,bid]=key.split('|');
+    const an=names[aid],bn=names[bid];
+    if(!an||!bn) continue;
+    pairs[an]=pairs[an]||{}; pairs[an][bn]={picks:arr[0],wins:arr[1],losses:arr[0]-arr[1]};
+    pairs[bn]=pairs[bn]||{}; pairs[bn][an]={picks:arr[0],wins:arr[1],losses:arr[0]-arr[1]};
+  }
+  return {bs,ms,pairs};
+}
+
+async function loadModeData(mode){
+  if(mode==='all'||MODE_CACHE[mode]) return;
+  try {
+    const r=await fetch('data/mode_'+mode+'.json'); if(!r.ok) return;
+    const raw=await r.json();
+    const decoded={};
+    for(const [k,ctx] of Object.entries(raw)) decoded[k]=decodeCtx(ctx);
+    MODE_CACHE[mode]=decoded;
+  } catch(e){ console.warn('mode load failed:',mode,e); }
+}
+
+function onDataLoaded(){
+  document.getElementById('meta-battles').innerHTML='BATTLES <b>'+META.battles.toLocaleString()+'</b>';
+  document.getElementById('meta-players').innerHTML='PLAYERS <b>'+META.players.toLocaleString()+'</b>';
+  const upd=new Date(META.updated);
+  document.getElementById('meta-updated').innerHTML='UPDATED <b>'+upd.toLocaleDateString()+'</b>';
+
+  const savedTL=localStorage.getItem('brawldraft-tierlist');
+  if(savedTL){try{TIERLIST=JSON.parse(savedTL);}catch(e){}}
+  const savedOv=localStorage.getItem('brawldraft-overrides');
+  if(savedOv){try{OVERRIDES=JSON.parse(savedOv);}catch(e){}}
+  OVERRIDES.adjustments=OVERRIDES.adjustments||{};
+  OVERRIDES.banPriority=OVERRIDES.banPriority||{};
+  OVERRIDES.matchups=OVERRIDES.matchups||{};
+  OVERRIDES.notes=OVERRIDES.notes||'';
+
+  populateModeSelects();
+  initDraft(); initTierList(); initMatchup(); initStats();
+  initOverrides(); initMapTierList(); initSynergy(); initCompBuilder();
+
+  // Load NN (non-blocking)
+  loadNeuralNet();
+
+  document.getElementById('tab-loading').classList.remove('active');
+  document.getElementById('tab-loading').style.display='none';
+  document.getElementById('tab-draft').classList.add('active');
+  document.getElementById('tab-draft').style.display='flex';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTEXT HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function getCtxData(mode,map){
+  if(!mode||mode==='all') return OVERALL;
+  const md=MODE_CACHE[mode]; if(!md) return OVERALL;
+  if(map&&map!==''&&map!=='all'&&md[map]) return md[map];
+  return md['all']||OVERALL;
+}
+function getBrawlerStats(mode,map){ return getCtxData(mode,map).bs||{}; }
+function getMatchupStats(mode,map){
+  const ms=getCtxData(mode,map).ms||{};
+  if(Object.keys(ms).length===0){
+    for(const md of Object.values(MODE_CACHE)){
+      const fb=(md['all']||{}).ms||{};
+      if(Object.keys(fb).length>0) return fb;
+    }
+  }
+  return ms;
+}
+function getPairStats(mode,map){ return getCtxData(mode,map).pairs||{}; }
+function getDraftMode(){ return document.getElementById('draft-mode').value.split('|')[0]; }
+function getDraftMap(){  return document.getElementById('draft-map').value||''; }
+function getMuMode(){    return document.getElementById('mu-mode').value.split('|')[0]; }
+function getMuMap(){     return document.getElementById('mu-map').value||''; }
+function getStatsMode(){ return document.getElementById('stats-mode').value.split('|')[0]; }
+function getStatsMap(){  return document.getElementById('stats-map').value||''; }
+function allBrawlers(){  return META?[...META.brawlers].sort():[]; }
+
+function wrColor(wr){
+  if(wr===null||wr===undefined) return 'var(--text3)';
+  if(wr>=0.53) return 'var(--green)';
+  if(wr>=0.47) return 'var(--gold)';
+  return 'var(--red)';
+}
+
+function fmtMode(m){
+  const n={brawlBall:'Brawl Ball',gemGrab:'Gem Grab',heist:'Heist',knockout:'Knockout',hotZone:'Hot Zone',bounty:'Bounty'};
+  return n[m]||m;
+}
+
+function populateModeSelects(){
+  const modes=META.modes||[];
+  ['draft','mu','stats','tm','syn','comp'].forEach(pfx=>{
+    const modeEl=document.getElementById(pfx+'-mode');
+    const mapEl=document.getElementById(pfx+'-map');
+    if(!modeEl||!mapEl) return;
+    modeEl.innerHTML='<option value="all|all">All Modes / All Maps</option>';
+    modes.forEach(m=>{
+      const o=document.createElement('option');
+      o.value=m+'|all'; o.textContent=fmtMode(m)+' — All Maps';
+      modeEl.appendChild(o);
+    });
+    modeEl.addEventListener('change',async function(){
+      const mode=modeEl.value.split('|')[0];
+      if(mode!=='all') await loadModeData(mode);
+      mapEl.innerHTML='<option value="">All Maps</option>';
+      const allM=(META.maps&&META.maps[mode])||[];
+      const actM=ACTIVE_MAPS[mode]||null;
+      const maps=actM?allM.filter(x=>actM.includes(x)):allM;
+      maps.forEach(m=>{ const o=document.createElement('option');o.value=m;o.textContent=m;mapEl.appendChild(o); });
+      invalidateCache();
+      if(pfx==='draft') renderDraft();
+      if(pfx==='mu')    renderMatchup();
+      if(pfx==='stats') renderStats();
+    });
+    mapEl.addEventListener('change',()=>{
+      invalidateCache();
+      if(pfx==='draft') renderDraft();
+      if(pfx==='mu')    renderMatchup();
+      if(pfx==='stats') renderStats();
+    });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NEURAL NETWORK
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadNeuralNet(){
+  if(NN_LOADING||NN_ENABLED) return;
+  NN_LOADING=true;
+  setNNStatus('loading');
+  try {
+    setNNProgress(20);
+    const metaR=await fetch('model/model_meta.json');
+    if(!metaR.ok) throw new Error('model_meta.json not found');
+    NN_META=await metaR.json();
+    setNNProgress(50);
+
+    NN_MODEL=await ort.InferenceSession.create('model/model.onnx',{executionProviders:['wasm']});
+    setNNProgress(100);
+
+    NN_ENABLED=true;
+    setNNStatus('live');
+    console.log('NN loaded:',NN_META.nb,'brawlers,',NN_META.nm,'modes,',NN_META.nmp,'maps | v3 embed');
+    // Re-render draft to use NN immediately
+    if(META) renderDraft();
+  } catch(e){
+    console.warn('NN not available:',e.message);
+    NN_ENABLED=false;
+    setNNStatus('offline');
+  }
+  NN_LOADING=false;
+  setTimeout(()=>{ document.getElementById('nn-loading-bar').style.width='0%'; },800);
+}
+
+function setNNProgress(pct){
+  document.getElementById('nn-loading-bar').style.width=pct+'%';
+}
+function setNNStatus(state){
+  const dot=document.getElementById('nn-dot');
+  const txt=document.getElementById('nn-status');
+  if(state==='live'){
+    dot.classList.add('live');
+    txt.textContent='NN Active';
+  } else if(state==='offline'){
+    txt.textContent='NN Offline';
+  } else {
+    txt.textContent='Loading NN...';
+  }
+}
+
+/**
+ * Build NN input vector for draft-specific model.
+ * Matches the feature layout in train_model.py:
+ *   t1_picks[NB] + t2_picks[NB] + t1_bans[NB] + t2_bans[NB]
+ *   + mode[NM] + map[NMP] + mode_map[NMM]
+
+ */
+/**
+ * Build a 16-element Int32Array matching the v4 model's row layout:
+ * [mode_id, map_id, t1x3, t2x3, bt1x3, bt2x3, dur*1000, elo*1000]
+ * Slot mask removed — not available from the battle log API.
+ */
+function buildNNInput(t1Picks, t2Picks, t1Bans, t2Bans, mode, map){
+  if(!NN_META) return null;
+  const {brawlers,modes,maps,nb,nm,nmp}=NN_META;
+
+  if(!NN_META._bi){
+    NN_META._bi={}; brawlers.forEach((b,i)=>NN_META._bi[b]=i);
+    NN_META._mi={}; modes.forEach((m,i)=>NN_META._mi[m]=i);
+    NN_META._mpi={}; maps.forEach((m,i)=>NN_META._mpi[m]=i);
+  }
+  const {_bi:bi,_mi:mi,_mpi:mpi}=NN_META;
+
+  const PAD_B=nb, PAD_M=nm, PAD_P=nmp;
+  function bId(name){ const i=bi[name]; return i!==undefined?i:PAD_B; }
+  function pad3(arr){ const r=[PAD_B,PAD_B,PAD_B]; arr.forEach((b,i)=>{ if(i<3) r[i]=bId(b); }); return r; }
+
+  const t1p=pad3(t1Picks), t2p=pad3(t2Picks);
+  const b1p=pad3(t1Bans),  b2p=pad3(t2Bans);
+
+  const row=new Int32Array(16);
+  row[0] =mi[mode]!==undefined?mi[mode]:PAD_M;
+  row[1] =mpi[map]!==undefined?mpi[map]:PAD_P;
+  row[2] =t1p[0]; row[3]=t1p[1]; row[4]=t1p[2];
+  row[5] =t2p[0]; row[6]=t2p[1]; row[7]=t2p[2];
+  row[8] =b1p[0]; row[9]=b1p[1]; row[10]=b1p[2];
+  row[11]=b2p[0]; row[12]=b2p[1]; row[13]=b2p[2];
+  row[14]=500;  // dur=0.5 * 1000
+  row[15]=800;  // elo proxy * 1000
+  return row;
+}
+
+async function nnPredict(t1Picks, t2Picks, t1Bans, t2Bans, mode, map){
+  if(!NN_ENABLED||!NN_MODEL) return null;
+  try {
+    const input=buildNNInput(t1Picks,t2Picks,t1Bans,t2Bans,mode,map);
+    if(!input) return null;
+    const tensor=new ort.Tensor('int32',input,[1,16]);
+    const results=await NN_MODEL.run({input:tensor});
+    return results[Object.keys(results)[0]].data[0];
+  } catch(e){ console.warn('NN inference error:',e); return null; }
+}
+
+/**
+ * Score a single candidate pick using NN.
+ * Returns win probability (0-1) for your team if you pick this brawler next.
+ */
+async function nnScorePick(name, mode, map){
+  const t1=[...draftAllies,name];
+  const t2=[...draftEnemies];
+  const t1pad=t1.length<3?[...t1,...t1.slice(0,3-t1.length)]:t1.slice(0,3);
+  const t2pad=t2.length<3?(t2.length>0?[...t2,...t2.slice(0,3-t2.length)]:null):t2.slice(0,3);
+  if(!t2pad||t2pad[0]===undefined) return null;
+  return await nnPredict(t1pad,t2pad,draftAllyBans,draftEnemyBans,mode,map);
+}
+
+/**
+ * Score a ban candidate using NN.
+ * Returns "threat score" = how bad it is if enemy picks this brawler.
+ */
+async function nnScoreBan(name, mode, map){
+  if(draftAllies.length===0) return null;
+  const t1=[...draftAllies]; while(t1.length<3) t1.push(t1[0]);
+  const t2=[...draftEnemies,name]; while(t2.length<3) t2.push(t2[t2.length-1]||name);
+  const prob=await nnPredict(t1.slice(0,3),t2.slice(0,3),draftAllyBans,draftEnemyBans,mode,map);
+  return prob!==null?1-prob:null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEURISTIC SCORING (used for supplementary stats display only)
+// ─────────────────────────────────────────────────────────────────────────────
+function invalidateCache(){ _scoreCache={}; }
+function bayesWR(w,l){ return (w+PRIOR*.5)/(w+l+PRIOR); }
+function rawWR(name,bs){
+  const s=bs[name]; if(!s||s.picks<MIN_GAMES) return .5;
+  return bayesWR(s.wins,s.losses);
+}
+function matchupStr(a,b,ms){
+  const ov=OVERRIDES.matchups[a+'|'+b]; if(ov!==undefined) return ov;
+  const ovR=OVERRIDES.matchups[b+'|'+a]; if(ovR!==undefined) return 1-ovR;
+  const rec=ms[a]&&ms[a][b];
+  if(!rec||rec.wins+rec.losses<MIN_GAMES) return .5;
+  const conf=Math.min(1,(rec.wins+rec.losses)/20);
+  return .5+(bayesWR(rec.wins,rec.losses)-.5)*conf;
+}
+function counterScore(cand,targets,ms){
+  if(!targets.length) return .5;
+  let ws=0,wt=0;
+  targets.forEach(t=>{
+    const rec=ms[cand]&&ms[cand][t];
+    const conf=rec?Math.min(1,(rec.wins+rec.losses)/20):0;
+    const w=conf+.1;
+    ws+=matchupStr(cand,t,ms)*w; wt+=w;
+  });
+  return ws/wt;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAFT STATE
+// ─────────────────────────────────────────────────────────────────────────────
+function getDraftSeq(side){
+  const bans=side==='first'
+    ?['ally','ally','ally','enemy','enemy','enemy']
+    :['ally','ally','ally','enemy','enemy','enemy'];
+  const picks=side==='first'
+    ?['ally','enemy','enemy','ally','ally','enemy']
+    :['enemy','ally','ally','enemy','enemy','ally'];
+  const seq=[];
+  const bc={ally:0,enemy:0};
+  bans.forEach(t=>seq.push({phase:'ban',team:t,slot:bc[t]++}));
+  const pc={ally:0,enemy:0};
+  picks.forEach(t=>seq.push({phase:'pick',team:t,slot:pc[t]++}));
+  return seq;
+}
+function getCurStep(){
+  const seq=getDraftSeq(document.getElementById('draft-side').value);
+  for(let i=0;i<seq.length;i++){
+    const s=seq[i];
+    const pool=s.phase==='ban'?(s.team==='ally'?draftAllyBans:draftEnemyBans):(s.team==='ally'?draftAllies:draftEnemies);
+    if(pool.length<=s.slot) return i;
+  }
+  return seq.length;
+}
+function allPicked(){ return new Set([...draftAllies,...draftEnemies]); }
+function allPickedOrBanned(){ return new Set([...draftAllies,...draftEnemies,...draftAllyBans,...draftEnemyBans]); }
+function scoreAdj(name){ return (OVERRIDES.adjustments[name]||0)/100; }
+function banPriority(name){ return OVERRIDES.banPriority[name]; }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAFT RENDER
+// ─────────────────────────────────────────────────────────────────────────────
+function initDraft(){
+  renderDraft();
+  document.getElementById('draft-reset').addEventListener('click',()=>{
+    draftAllies=[];draftEnemies=[];draftAllyBans=[];draftEnemyBans=[];
+    invalidateCache();renderDraft();
+  });
+  document.getElementById('draft-side').addEventListener('change',()=>{ invalidateCache();renderDraft(); });
+  document.getElementById('grid-search').addEventListener('input',e=>{ gridSearch=e.target.value.toLowerCase();renderBrawlerGrid(); });
+  document.querySelectorAll('.filter-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on'); gridFilter=btn.dataset.f; renderBrawlerGrid();
+    });
+  });
+}
+
+function renderDraft(){
+  renderOrderBar();
+  renderSlots('ally-ban-slots',draftAllyBans,'ally-ban');
+  renderSlots('ally-slots',draftAllies,'ally-pick');
+  renderSlots('enemy-ban-slots',draftEnemyBans,'enemy-ban');
+  renderSlots('enemy-slots',draftEnemies,'enemy-pick');
+  renderBrawlerGrid();
+  renderSuggestions();
+  updateWinMeter();
+}
+
+function renderSlots(id,pool,cls){
+  const el=document.getElementById(id);
+  const mode=getDraftMode(),map=getDraftMap();
+  const bs=getBrawlerStats(mode,map);
+  el.innerHTML='';
+  for(let i=0;i<3;i++){
+    const name=pool[i];
+    const div=document.createElement('div');
+    div.className='slot-item '+cls;
+    if(name){
+      const wr=rawWR(name,bs);
+      div.innerHTML='<span class="slot-name">'+name+'</span>'
+        +'<span class="slot-wr" style="color:'+wrColor(wr)+'">'+(wr*100).toFixed(1)+'%</span>'
+        +'<button class="slot-remove" data-pool="'+id+'" data-name="'+name+'">×</button>';
+    } else {
+      div.innerHTML='<span class="slot-empty">Slot '+(i+1)+'</span>';
+    }
+    el.appendChild(div);
+  }
+  el.querySelectorAll('.slot-remove').forEach(btn=>{
+    btn.addEventListener('click',e=>{
+      e.stopPropagation(); const n=btn.dataset.name;
+      if(id==='ally-ban-slots')  draftAllyBans=draftAllyBans.filter(x=>x!==n);
+      if(id==='ally-slots')      draftAllies=draftAllies.filter(x=>x!==n);
+      if(id==='enemy-ban-slots') draftEnemyBans=draftEnemyBans.filter(x=>x!==n);
+      if(id==='enemy-slots')     draftEnemies=draftEnemies.filter(x=>x!==n);
+      invalidateCache();renderDraft();
+    });
+  });
+}
+
+function renderOrderBar(){
+  const side=document.getElementById('draft-side').value;
+  const seq=getDraftSeq(side),cur=getCurStep();
+  const bar=document.getElementById('draft-order-bar');
+  bar.innerHTML=seq.map((s,i)=>{
+    const isCur=i===cur,isDone=i<cur,isBan=s.phase==='ban';
+    const pool=s.phase==='ban'?(s.team==='ally'?draftAllyBans:draftEnemyBans):(s.team==='ally'?draftAllies:draftEnemies);
+    const brawler=pool[s.slot]||'';
+    const teamCol=s.team==='ally'?'var(--cyan)':'var(--red)';
+    const label=(s.team==='ally'?(isBan?'BAN':'PICK'):(isBan?'REC BAN':'REC'))+(s.slot<3?' '+(s.slot+1):'');
+    return '<div class="order-slot'+(isBan?' ban-type':'')+(isCur?' current':'')+(isDone?' done':'')+'">'
+      +'<span class="os-label">'+label+'</span>'
+      +'<span class="os-team" style="color:'+teamCol+'">'+(s.team==='ally'?'YOU':'ENEMY')+'</span>'
+      +'<span class="os-brawler">'+(brawler||(isCur?'…':'-'))+'</span></div>'
+      +(i<seq.length-1?'<span style="color:var(--border2);font-size:.6rem;flex-shrink:0">›</span>':'');
+  }).join('');
+}
+
+function renderBrawlerGrid(){
+  const grid=document.getElementById('brawler-grid');
+  const mode=getDraftMode(),map=getDraftMap();
+  const bs=getBrawlerStats(mode,map);
+  const seq=getDraftSeq(document.getElementById('draft-side').value);
+  const cur=getCurStep();
+  const step=cur<seq.length?seq[cur]:null;
+  const inBan=step&&step.phase==='ban';
+  const blocked=inBan?allPicked():allPickedOrBanned();
+
+  let brawlers=allBrawlers();
+  if(gridSearch) brawlers=brawlers.filter(b=>b.toLowerCase().includes(gridSearch));
+  if(gridFilter==='available') brawlers=brawlers.filter(b=>!blocked.has(b));
+
+  grid.innerHTML=brawlers.map(b=>{
+    const s=bs[b];
+    const wr=s&&s.wins+s.losses>0?s.wins/(s.wins+s.losses):null;
+    const tier=TIERLIST[b]||'';
+    const cls=draftAllies.includes(b)||draftAllyBans.includes(b)?'ally'
+             :draftEnemies.includes(b)||draftEnemyBans.includes(b)?'enemy'
+             :blocked.has(b)?'unavailable':'';
+    return '<div class="bc '+cls+'" data-name="'+b+'" title="'+b+'">'
+      +(tier?'<div class="bc-tier tier-'+tier+'">'+tier+'</div>':'')
+      +'<img src="'+imgUrl(b)+'" alt="'+b+'" class="bc-img">'
+      +'<div class="bc-name">'+b+'</div>'
+      +'<div class="bc-wr" style="color:'+wrColor(wr)+'">'+( wr!==null?(wr*100).toFixed(1)+'%':'-')+'</div>'
+      +'</div>';
+  }).join('');
+  grid.querySelectorAll('.bc:not(.unavailable)').forEach(card=>{
+    card.addEventListener('click',()=>{
+      const name=card.dataset.name;
+      const seq2=getDraftSeq(document.getElementById('draft-side').value);
+      const step2=seq2[getCurStep()]; if(!step2) return;
+      if(step2.phase==='ban'){
+        if(allPicked().has(name)) return;
+        if(step2.team==='ally'&&draftAllyBans.length<3) draftAllyBans.push(name);
+        else if(step2.team==='enemy'&&draftEnemyBans.length<3) draftEnemyBans.push(name);
+      } else {
+        if(allPickedOrBanned().has(name)) return;
+        if(step2.team==='ally'&&draftAllies.length<3) draftAllies.push(name);
+        else if(step2.team==='enemy'&&draftEnemies.length<3) draftEnemies.push(name);
+      }
+      invalidateCache();renderDraft();
+    });
+  });
+}
+document.addEventListener('error',e=>{ if(e.target.classList&&e.target.classList.contains('bc-img')){e.target.style.display='none';}},true);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUGGESTIONS — FULLY NN-DRIVEN
+// ─────────────────────────────────────────────────────────────────────────────
+function renderSuggestions(){
+  const list=document.getElementById('sug-list');
+  const title=document.getElementById('sug-title');
+  const seq=getDraftSeq(document.getElementById('draft-side').value);
+  const cur=getCurStep();
+  const token=++_renderToken;
+
+  if(cur>=seq.length){
+    title.textContent='Draft Complete';
+    list.innerHTML='<div class="no-picks">Draft finished — good luck!</div>';
+    return;
+  }
+
+  const step=seq[cur];
+  const isBan=step.phase==='ban';
+  const isYours=step.team==='ally';
+  const taken=isBan?allPicked():allPickedOrBanned();
+  const avail=allBrawlers().filter(b=>!taken.has(b));
+  const mode=getDraftMode(),map=getDraftMap();
+  const bs=getBrawlerStats(mode,map);
+  const ms=getMatchupStats(mode,map);
+
+  // Title
+  const labels=['1st','2nd','3rd'];
+  if(!isYours) title.textContent=isBan?'Record Enemy Ban':'Record Enemy Pick';
+  else if(isBan) title.textContent='Your Ban '+(draftAllyBans.length+1)+'/3';
+  else title.textContent='Your '+labels[draftAllies.length]+' Pick';
+
+  if(!NN_ENABLED&&NN_LOADING){
+    list.innerHTML='<div class="sg-loading"><div class="sg-loading-spinner"></div>Loading neural network...</div>';
+    // Retry when NN loads
+    const checkNN=setInterval(()=>{
+      if(token!==_renderToken){ clearInterval(checkNN);return; }
+      if(NN_ENABLED||!NN_LOADING){ clearInterval(checkNN);renderSuggestions(); }
+    },300);
+    return;
+  }
+
+  if(!NN_ENABLED){
+    // NN not available: show WR-based fallback with clear label
+    list.innerHTML='<div class="no-picks" style="color:var(--red);margin-bottom:8px">NN offline — showing win rate rankings only</div>';
+    const ranked=avail.map(b=>({name:b,score:rawWR(b,bs)}))
+      .filter(x=>x.score>0)
+      .sort((a,b)=>b.score-a.score);
+    renderFallbackRows(ranked,isBan,isYours,bs,ms,token,list);
+    return;
+  }
+
+  // NN available: score all candidates
+  list.innerHTML='<div class="sg-loading"><div class="sg-loading-spinner"></div>Scoring with neural network...</div>';
+  scoreAllWithNN(avail,isBan,isYours,mode,map,bs,ms,token,list);
+}
+
+async function scoreAllWithNN(avail,isBan,isYours,mode,map,bs,ms,token,list){
+  if(token!==_renderToken) return;
+
+  const results=[];
+  const CHUNK=20;
+
+  // Score in batches to keep UI responsive
+  for(let i=0;i<avail.length;i+=CHUNK){
+    if(token!==_renderToken) return;
+    const batch=avail.slice(i,i+CHUNK);
+    const scores=await Promise.all(batch.map(async b=>{
+      try {
+        let nnScore;
+        if(isBan){
+          nnScore=isYours?await nnScoreBan(b,mode,map):await nnScoreBan(b,mode,map);
+        } else {
+          nnScore=await nnScorePick(b,mode,map);
+        }
+        // Apply override adjustments
+        const adj=scoreAdj(b);
+        if(nnScore!==null) nnScore=Math.max(0,Math.min(1,nnScore+adj));
+        // Apply ban priority overrides
+        const bp=banPriority(b);
+        if(isBan&&isYours&&bp==='always') nnScore=0.99;
+        if(isBan&&isYours&&bp==='never')  nnScore=0.01;
+        return {name:b,score:nnScore,nnScore};
+      } catch(e){ return {name:b,score:null,nnScore:null}; }
+    }));
+    scores.forEach(s=>{ if(s.score!==null) results.push(s); });
+    // Update progress
+    if(token!==_renderToken) return;
+    const pct=Math.round((i+CHUNK)/avail.length*100);
+    list.innerHTML='<div class="sg-loading"><div class="sg-loading-spinner"></div>Scoring '
+      +Math.min(i+CHUNK,avail.length)+'/'+avail.length+' brawlers...</div>';
+  }
+
+  if(token!==_renderToken) return;
+  results.sort((a,b)=>b.score-a.score);
+  renderNNRows(results,isBan,isYours,bs,ms,token,list);
+}
+
+function renderNNRows(results,isBan,isYours,bs,ms,token,list){
+  if(token!==_renderToken) return;
+  const mode=getDraftMode(),map=getDraftMap();
+
+  const html=results.slice(0,40).map((c,i)=>{
+    const tier=TIERLIST[c.name]||'';
+    const wr=rawWR(c.name,bs);
+    const ctr=draftEnemies.length>0&&!isBan?counterScore(c.name,draftEnemies,ms):null;
+    const scoreCol=isBan?'var(--red)':c.score>=.55?'var(--green)':c.score>=.45?'var(--gold)':'var(--red)';
+
+    return '<div class="sg-row'+(isBan?' ban-row':'')+'" data-name="'+c.name+'" style="animation-delay:'+(i*.018)+'s">'
+      +'<span class="sg-rank">'+(i+1)+'</span>'
+      +'<img src="'+imgUrl(c.name)+'" class="sg-thumb" alt="">'
+      +'<span class="sg-name">'+c.name+'</span>'
+      +(tier?'<span class="sg-tier tier-'+tier+'">'+tier+'</span>':'')
+      +'<div class="sg-stats">'
+      +'<div class="sg-chip"><span class="sg-chip-lbl">WR</span><span class="sg-chip-val" style="color:'+wrColor(wr)+'">'+(wr*100).toFixed(1)+'%</span></div>'
+      +(ctr!==null?'<div class="sg-chip"><span class="sg-chip-lbl">CTR</span><span class="sg-chip-val" style="color:'+wrColor(ctr)+'">'+(ctr*100).toFixed(1)+'%</span></div>':'')
+      +'</div>'
+      +'<span class="sg-nn-score" style="color:'+scoreCol+'">'+(c.score*100).toFixed(1)+'</span>'
+      +'</div>';
+  }).join('');
+
+  list.innerHTML=html||'<div class="no-picks">Not enough data for NN scoring</div>';
+
+  list.querySelectorAll('.sg-row').forEach(row=>{
+    row.addEventListener('click',()=>{
+      const name=row.dataset.name;
+      const seq2=getDraftSeq(document.getElementById('draft-side').value);
+      const step=seq2[getCurStep()]; if(!step) return;
+      if(step.phase==='ban'){
+        if(allPicked().has(name)) return;
+        if(step.team==='ally'&&draftAllyBans.length<3) draftAllyBans.push(name);
+        else if(step.team==='enemy'&&draftEnemyBans.length<3) draftEnemyBans.push(name);
+      } else {
+        if(allPickedOrBanned().has(name)) return;
+        if(step.team==='ally'&&draftAllies.length<3) draftAllies.push(name);
+        else if(step.team==='enemy'&&draftEnemies.length<3) draftEnemies.push(name);
+      }
+      invalidateCache();renderDraft();
+    });
+  });
+}
+
+function renderFallbackRows(ranked,isBan,isYours,bs,ms,token,list){
+  if(token!==_renderToken) return;
+  const html=ranked.slice(0,40).map((c,i)=>{
+    const tier=TIERLIST[c.name]||'';
+    const wr=rawWR(c.name,bs);
+    return '<div class="sg-row'+(isBan?' ban-row':'')+'" data-name="'+c.name+'">'
+      +'<span class="sg-rank">'+(i+1)+'</span>'
+      +'<img src="'+imgUrl(c.name)+'" class="sg-thumb" alt="">'
+      +'<span class="sg-name">'+c.name+'</span>'
+      +(tier?'<span class="sg-tier tier-'+tier+'">'+tier+'</span>':'')
+      +'<div class="sg-stats"><div class="sg-chip"><span class="sg-chip-lbl">WR</span>'
+      +'<span class="sg-chip-val" style="color:'+wrColor(wr)+'">'+(wr*100).toFixed(1)+'%</span></div></div>'
+      +'<span class="sg-nn-score" style="color:'+wrColor(wr)+'">'+(c.score*100).toFixed(1)+'</span>'
+      +'</div>';
+  }).join('');
+  list.innerHTML=html||'<div class="no-picks">No data</div>';
+  list.querySelectorAll('.sg-row').forEach(row=>{
+    row.addEventListener('click',()=>{
+      const name=row.dataset.name;
+      const seq2=getDraftSeq(document.getElementById('draft-side').value);
+      const step=seq2[getCurStep()]; if(!step) return;
+      if(step.phase==='ban'){
+        if(allPicked().has(name)) return;
+        if(step.team==='ally'&&draftAllyBans.length<3) draftAllyBans.push(name);
+        else if(step.team==='enemy'&&draftEnemyBans.length<3) draftEnemyBans.push(name);
+      } else {
+        if(allPickedOrBanned().has(name)) return;
+        if(step.team==='ally'&&draftAllies.length<3) draftAllies.push(name);
+        else if(step.team==='enemy'&&draftEnemies.length<3) draftEnemies.push(name);
+      }
+      invalidateCache();renderDraft();
+    });
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WIN METER
+// ─────────────────────────────────────────────────────────────────────────────
+async function updateWinMeter(){
+  const wrap=document.getElementById('win-meter-wrap');
+  if(draftAllies.length===0||draftEnemies.length===0){ wrap.style.display='none'; return; }
+  wrap.style.display='flex';
+  const mode=getDraftMode(),map=getDraftMap();
+
+  let prob=null,src='est';
+  if(NN_ENABLED){
+    const t1=draftAllies.length===3?draftAllies:[...draftAllies,...draftAllies.slice(0,3-draftAllies.length)];
+    const t2=draftEnemies.length===3?draftEnemies:[...draftEnemies,...draftEnemies.slice(0,3-draftEnemies.length)];
+    if(t1.length>0&&t2.length>0){
+      prob=await nnPredict(t1.slice(0,3),t2.slice(0,3),draftAllyBans,draftEnemyBans,mode,map);
+      if(prob!==null) src='NN';
+    }
+  }
+  if(prob===null){
+    // Simple WR fallback for meter
+    const bs=getBrawlerStats(mode,map);
+    const ourWR=draftAllies.reduce((a,b)=>a+rawWR(b,bs),0)/Math.max(draftAllies.length,1);
+    const enWR=draftEnemies.reduce((a,b)=>a+rawWR(b,bs),0)/Math.max(draftEnemies.length,1);
+    prob=.5+(ourWR-enWR);
+    src='est';
+  }
+
+  const pct=Math.round(Math.max(20,Math.min(80,prob*100)));
+  const col=pct>=55?'var(--green)':pct<=45?'var(--red)':'var(--gold)';
+  document.getElementById('win-meter-fill').style.width=pct+'%';
+  document.getElementById('win-meter-fill').style.background=col;
+  document.getElementById('win-meter-pct').textContent=pct+'%';
+  document.getElementById('win-meter-pct').style.color=col;
+  document.getElementById('win-meter-src').textContent=src;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIER LIST
+// ─────────────────────────────────────────────────────────────────────────────
+function initTierList(){
+  renderTierList();
+  document.getElementById('tier-export-btn').addEventListener('click',()=>{
+    const b=new Blob([JSON.stringify(TIERLIST,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='brawl-tierlist.json';a.click();
+  });
+  document.getElementById('tier-import-btn').addEventListener('click',()=>document.getElementById('tier-import-file').click());
+  document.getElementById('tier-import-file').addEventListener('change',e=>{
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();
+    r.onload=ev=>{try{TIERLIST=JSON.parse(ev.target.result);saveTierList();renderTierList();renderBrawlerGrid();}catch(err){alert('Invalid JSON');}};
+    r.readAsText(file);
+  });
+}
+function saveTierList(){ localStorage.setItem('brawldraft-tierlist',JSON.stringify(TIERLIST)); }
+let dragBrawler=null;
+function renderTierList(){
+  const untieredEl=document.getElementById('tier-untiered');
+  const tieredSet=new Set(Object.keys(TIERLIST));
+  untieredEl.innerHTML=allBrawlers().filter(b=>!tieredSet.has(b)).map(tierCellHTML).join('');
+  setupDrag(untieredEl,null);
+  const rowsEl=document.getElementById('tier-rows');
+  rowsEl.innerHTML=TIERS.map(tier=>{
+    const brawlers=Object.entries(TIERLIST).filter(e=>e[1]===tier).map(e=>e[0]).sort();
+    return '<div class="tier-row"><div class="tier-label" style="background:'+TIER_BG[tier]+';color:'+TIER_COLORS[tier]+'">'+tier+'</div>'
+      +'<div class="tier-cells" data-tier="'+tier+'" style="background:'+TIER_BG[tier]+'20">'+brawlers.map(tierCellHTML).join('')+'</div></div>';
+  }).join('');
+  [untieredEl,...rowsEl.querySelectorAll('.tier-cells')].forEach(zone=>{
+    const tier=zone.dataset?zone.dataset.tier:null;
+    setupDrag(zone,tier);
+    zone.addEventListener('dragover',e=>e.preventDefault());
+    zone.addEventListener('drop',e=>{
+      e.preventDefault();if(!dragBrawler)return;
+      if(tier)TIERLIST[dragBrawler]=tier;else delete TIERLIST[dragBrawler];
+      dragBrawler=null;saveTierList();renderTierList();renderBrawlerGrid();
+    });
+  });
+}
+function tierCellHTML(name){
+  const t=TIERLIST[name]||'';
+  return '<div class="tier-cell" draggable="true" data-name="'+name+'">'+(t?'<span style="color:'+TIER_COLORS[t]+';font-size:.55rem;font-weight:800">'+t+'</span>':'')+name+'</div>';
+}
+function setupDrag(container){
+  container.querySelectorAll('.tier-cell').forEach(cell=>{
+    cell.addEventListener('dragstart',()=>{dragBrawler=cell.dataset.name;setTimeout(()=>cell.classList.add('dragging'),0);});
+    cell.addEventListener('dragend',()=>cell.classList.remove('dragging'));
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MATCHUP TABLE
+// ─────────────────────────────────────────────────────────────────────────────
+function initMatchup(){
+  renderMatchup();
+  document.getElementById('mu-apply').addEventListener('click',renderMatchup);
+  document.getElementById('mu-search').addEventListener('keydown',e=>{if(e.key==='Enter')renderMatchup();});
+  document.getElementById('mu-export-csv').addEventListener('click',exportMatchupCSV);
+}
+function renderMatchup(){
+  const ms=getMatchupStats(getMuMode(),getMuMap());
+  const minG=parseInt(document.getElementById('mu-min').value)||10;
+  const search=document.getElementById('mu-search').value.toUpperCase().trim();
+  const allB=new Set();
+  Object.keys(ms).forEach(a=>{allB.add(a);Object.keys(ms[a]).forEach(b=>allB.add(b));});
+  const cols=[...allB].sort();
+  let rows=[...allB].sort();
+  if(search) rows=rows.filter(b=>b.includes(search));
+  const table=document.getElementById('mu-table');
+  if(!rows.length){table.innerHTML='<tr><td style="padding:18px;color:var(--text3);font-family:var(--mono)">No data. Select a mode first.</td></tr>';return;}
+  let html='<thead><tr><th>vs</th>';
+  cols.forEach(c=>html+='<th title="'+c+'">'+(c.length>8?c.slice(0,8)+'…':c)+'</th>');
+  html+='</tr></thead><tbody>';
+  rows.forEach(row=>{
+    html+='<tr><th>'+row+'</th>';
+    cols.forEach(col=>{
+      if(row===col){html+='<td class="self">—</td>';return;}
+      const rec=ms[row]&&ms[row][col]?ms[row][col]:null;
+      const tot=rec?rec.wins+rec.losses:0;
+      if(!rec||tot<minG){html+='<td class="nd" title="'+tot+' games">·</td>';return;}
+      const wr=rec.wins/tot,pct=Math.round(wr*100);
+      const t=Math.max(0,Math.min(1,(wr-.35)/.30));
+      const rr=Math.round(239+(34-239)*t),gg=Math.round(68+(197-68)*t),bb=Math.round(68+(94-68)*t);
+      const bg='rgba('+rr+','+gg+','+bb+','+(0.1+Math.abs(wr-.5)*.9)+')';
+      const fc=wr>=.55?'var(--green)':wr<=.45?'var(--red)':'var(--text)';
+      html+='<td style="background:'+bg+';color:'+fc+'" title="'+row+' vs '+col+': '+rec.wins+'W '+rec.losses+'L">'+pct+'%</td>';
+    });
+    html+='</tr>';
+  });
+  html+='</tbody>';
+  table.innerHTML=html;
+}
+function exportMatchupCSV(){
+  const ms=getMatchupStats(getMuMode(),getMuMap()),minG=parseInt(document.getElementById('mu-min').value)||10;
+  const allB=new Set();Object.keys(ms).forEach(a=>{allB.add(a);Object.keys(ms[a]).forEach(b=>allB.add(b));});
+  const cols=[...allB].sort(),rows=[...allB].sort();
+  const search=document.getElementById('mu-search').value.toUpperCase().trim();
+  const filtRows=search?rows.filter(b=>b.includes(search)):rows;
+  if(!filtRows.length){alert('No data');return;}
+  const lines=[['brawler',...cols].join(',')];
+  filtRows.forEach(row=>{
+    const cells=[row];
+    cols.forEach(col=>{
+      if(row===col){cells.push('');return;}
+      const rec=ms[row]&&ms[row][col]?ms[row][col]:null;
+      const tot=rec?rec.wins+rec.losses:0;
+      cells.push(!rec||tot<minG?'':(rec.wins/tot*100).toFixed(1)+'%');
+    });
+    lines.push(cells.join(','));
+  });
+  const b=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='matchup.csv';a.click();URL.revokeObjectURL(a.href);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATS
+// ─────────────────────────────────────────────────────────────────────────────
+function initStats(){ renderStats(); }
+function renderStats(){
+  const bs=getBrawlerStats(getStatsMode(),getStatsMap());
+  const entries=Object.entries(bs);if(!entries.length)return;
+  const totalPicks=entries.reduce((a,e)=>a+e[1].picks,0);
+  const sorted=[...entries].sort((a,b)=>b[1].picks-a[1].picks);
+  const eligible=entries.filter(e=>e[1].picks>=20);
+  const topPick=sorted[0];
+  const topWR=[...eligible].sort((a,b)=>(b[1].wins/b[1].picks)-(a[1].wins/a[1].picks))[0];
+  const botWR=[...eligible].sort((a,b)=>(a[1].wins/a[1].picks)-(b[1].wins/b[1].picks))[0];
+  document.getElementById('summary-cards').innerHTML=[
+    {val:entries.length,label:'Brawlers',col:'var(--gold)'},
+    {val:totalPicks.toLocaleString(),label:'Total Picks',col:'var(--cyan)'},
+    {val:topPick?topPick[0]:'—',label:'Most Picked',col:'var(--green)'},
+    {val:topWR?topWR[0]:'—',label:'Best WR',col:'var(--green)'},
+    {val:botWR?botWR[0]:'—',label:'Worst WR',col:'var(--red)'},
+  ].map(c=>'<div class="summary-card" style="--accent:'+c.col+'"><div class="sc-val">'+c.val+'</div><div class="sc-label">'+c.label+'</div></div>').join('');
+  function hbar(name,val,maxVal,color,fmt){
+    const w=(val/maxVal*100).toFixed(1);
+    return '<div class="hbar-row"><div class="hbar-name" title="'+name+'">'+name+'</div>'
+      +'<div class="hbar-track"><div class="hbar-fill" style="width:'+w+'%;background:'+color+'">'+fmt+'</div></div>'
+      +'<div class="hbar-val" style="color:'+color+'">'+fmt+'</div></div>';
+  }
+  const topP=sorted.slice(0,12),maxP=topP[0][1].picks;
+  document.getElementById('pick-list').innerHTML=topP.map(e=>hbar(e[0],e[1].picks,maxP,'var(--cyan)',(e[1].picks/totalPicks*100).toFixed(1)+'%')).join('');
+  const topW=[...eligible].sort((a,b)=>(b[1].wins/b[1].picks)-(a[1].wins/a[1].picks)).slice(0,12);
+  const maxW=topW.length?topW[0][1].wins/topW[0][1].picks:1;
+  document.getElementById('wr-list').innerHTML=topW.map(e=>{const wr=e[1].wins/e[1].picks;return hbar(e[0],wr,maxW,wrColor(wr),(wr*100).toFixed(1)+'%');}).join('');
+  const botW=[...eligible].sort((a,b)=>(a[1].wins/a[1].picks)-(b[1].wins/b[1].picks)).slice(0,12);
+  const maxWb=botW.length?botW[botW.length-1][1].wins/botW[botW.length-1][1].picks:1;
+  document.getElementById('wrl-list').innerHTML=botW.map(e=>{const wr=e[1].wins/e[1].picks;return hbar(e[0],wr,maxWb,wrColor(wr),(wr*100).toFixed(1)+'%');}).join('');
+  const leastP=[...sorted].reverse().slice(0,12),maxLP=leastP[leastP.length-1][1].picks;
+  document.getElementById('lowpick-list').innerHTML=leastP.map(e=>hbar(e[0],e[1].picks,Math.max(maxLP,1),'var(--text3)',(e[1].picks/totalPicks*100).toFixed(2)+'%')).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OVERRIDES
+// ─────────────────────────────────────────────────────────────────────────────
+function initOverrides(){
+  renderOverridesTab();
+  document.getElementById('ov-export-btn').addEventListener('click',()=>{
+    const b=new Blob([JSON.stringify(OVERRIDES,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='brawl-overrides.json';a.click();
+  });
+  document.getElementById('ov-import-btn').addEventListener('click',()=>document.getElementById('ov-import-file').click());
+  document.getElementById('ov-import-file').addEventListener('change',e=>{
+    const file=e.target.files[0];if(!file)return;
+    const r=new FileReader();
+    r.onload=ev=>{try{OVERRIDES=JSON.parse(ev.target.result);saveOverrides();renderOverridesTab();}catch(err){alert('Invalid JSON');}};
+    r.readAsText(file);
+  });
+  document.getElementById('ov-reset-btn').addEventListener('click',()=>{
+    if(!confirm('Reset all overrides?'))return;
+    OVERRIDES={adjustments:{},banPriority:{},matchups:{},notes:''};
+    saveOverrides();renderOverridesTab();
+  });
+  document.getElementById('ov-adj-search').addEventListener('input',renderAdjList);
+  document.getElementById('ov-mu-add').addEventListener('click',()=>{
+    const a=document.getElementById('ov-mu-a').value;
+    const b=document.getElementById('ov-mu-b').value;
+    const wr=parseFloat(document.getElementById('ov-mu-wr').value);
+    if(!a||!b||a===b||isNaN(wr)||wr<0||wr>100){alert('Pick two different brawlers and a win rate 0-100.');return;}
+    OVERRIDES.matchups[a+'|'+b]=wr/100;saveOverrides();renderMuList();
+    document.getElementById('ov-mu-wr').value='';
+  });
+  document.getElementById('ov-notes').value=OVERRIDES.notes;
+  document.getElementById('ov-notes').addEventListener('input',e=>{OVERRIDES.notes=e.target.value;saveOverrides();});
+}
+function saveOverrides(){ localStorage.setItem('brawldraft-overrides',JSON.stringify(OVERRIDES)); }
+function renderOverridesTab(){
+  const brawlers=allBrawlers();
+  ['ov-mu-a','ov-mu-b'].forEach(id=>{
+    const el=document.getElementById(id),cur=el.value;
+    el.innerHTML='<option value="">Select</option>'+brawlers.map(b=>'<option value="'+b+'"'+(b===cur?' selected':'')+'>'+b+'</option>').join('');
+  });
+  renderAdjList();renderBanList();renderMuList();
+  document.getElementById('ov-notes').value=OVERRIDES.notes;
+}
+function renderAdjList(){
+  const search=document.getElementById('ov-adj-search').value.toLowerCase();
+  const brawlers=allBrawlers().filter(b=>b.toLowerCase().includes(search));
+  document.getElementById('ov-adj-list').innerHTML=brawlers.map(b=>{
+    const val=OVERRIDES.adjustments[b]||0;
+    const col=val>0?'var(--green)':val<0?'var(--red)':'var(--text3)';
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;display:flex;align-items:center;gap:7px">'
+      +'<span style="font-family:var(--display);font-weight:700;flex:1;font-size:.82rem">'+b+'</span>'
+      +'<button class="action-btn" onclick="adjBrawler(\''+b+'\',-5)" style="padding:2px 6px">-5</button>'
+      +'<button class="action-btn" onclick="adjBrawler(\''+b+'\',-1)" style="padding:2px 6px">-1</button>'
+      +'<span style="font-family:var(--mono);font-weight:700;color:'+col+';min-width:28px;text-align:center;font-size:.78rem">'+(val>0?'+':'')+val+'</span>'
+      +'<button class="action-btn" onclick="adjBrawler(\''+b+'\',1)" style="padding:2px 6px">+1</button>'
+      +'<button class="action-btn" onclick="adjBrawler(\''+b+'\',5)" style="padding:2px 6px">+5</button>'
+      +(val!==0?'<button class="action-btn" onclick="adjBrawler(\''+b+'\',0,true)" style="padding:2px 6px;color:var(--text3)">x</button>':'')
+      +'</div>';
+  }).join('');
+}
+function adjBrawler(name,delta,reset){
+  if(reset){delete OVERRIDES.adjustments[name];}
+  else{const c=OVERRIDES.adjustments[name]||0;OVERRIDES.adjustments[name]=Math.max(-20,Math.min(20,c+delta));if(OVERRIDES.adjustments[name]===0)delete OVERRIDES.adjustments[name];}
+  saveOverrides();renderAdjList();invalidateCache();
+}
+function renderBanList(){
+  document.getElementById('ov-ban-list').innerHTML=allBrawlers().map(b=>{
+    const p=OVERRIDES.banPriority[b];
+    const col=p==='always'?'var(--red)':p==='never'?'var(--cyan)':'var(--border)';
+    const lbl=p==='always'?'Always Ban':p==='never'?'Never Ban':b;
+    return '<div style="border:1px solid '+col+';border-radius:var(--r);padding:3px 8px;background:'+(p?'var(--bg3)':'var(--bg2)')+';cursor:pointer;font-family:var(--display);font-size:.72rem;font-weight:700" onclick="cycleBan(\''+b+'\')">'
+      +'<span style="color:'+col+'">'+lbl+'</span></div>';
+  }).join('');
+}
+function cycleBan(name){
+  const c=OVERRIDES.banPriority[name];
+  if(!c)OVERRIDES.banPriority[name]='always';
+  else if(c==='always')OVERRIDES.banPriority[name]='never';
+  else delete OVERRIDES.banPriority[name];
+  saveOverrides();renderBanList();invalidateCache();
+}
+function renderMuList(){
+  const entries=Object.entries(OVERRIDES.matchups);
+  document.getElementById('ov-mu-list').innerHTML=!entries.length
+    ?'<div style="color:var(--text3);font-family:var(--mono);font-size:.72rem">No overrides yet.</div>'
+    :entries.map(e=>{
+      const key=e[0],wr=e[1];const parts=key.split('|');
+      const pct=(wr*100).toFixed(0);const col=wr>=.52?'var(--green)':wr<=.48?'var(--red)':'var(--text)';
+      return '<div style="display:flex;align-items:center;gap:9px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:6px 10px;margin-bottom:3px">'
+        +'<span style="font-family:var(--display);font-weight:700;flex:1">'+parts[0]+'</span>'
+        +'<span style="font-family:var(--mono);font-size:.68rem;color:var(--text3)">vs</span>'
+        +'<span style="font-family:var(--display);font-weight:700;flex:1">'+parts[1]+'</span>'
+        +'<span style="font-family:var(--mono);font-weight:700;color:'+col+';min-width:40px;text-align:right">'+pct+'% WR</span>'
+        +'<button class="action-btn" onclick="removeMu(\''+key+'\')" style="color:var(--red);border-color:rgba(255,61,90,.3);padding:2px 6px">x</button>'
+        +'</div>';
+    }).join('');
+}
+function removeMu(key){delete OVERRIDES.matchups[key];saveOverrides();renderMuList();invalidateCache();}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAP TIER LIST
+// ─────────────────────────────────────────────────────────────────────────────
+function initMapTierList(){
+  document.getElementById('tm-apply').addEventListener('click',renderMapTierList);
+  document.getElementById('tm-mode').addEventListener('change',async function(){
+    const mode=this.value.split('|')[0];
+    if(mode!=='all') await loadModeData(mode);
+    const mapEl=document.getElementById('tm-map');
+    mapEl.innerHTML='<option value="">All Maps</option>';
+    const allM=(META.maps&&META.maps[mode])||[];
+    const actM=ACTIVE_MAPS[mode]||null;
+    const maps=actM?allM.filter(x=>actM.includes(x)):allM;
+    maps.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mapEl.appendChild(o);});
+    renderMapTierList();
+  });
+  document.getElementById('tm-map').addEventListener('change',renderMapTierList);
+}
+function renderMapTierList(){
+  const mode=document.getElementById('tm-mode').value.split('|')[0];
+  const map=document.getElementById('tm-map').value||'';
+  const minP=parseInt(document.getElementById('tm-min').value)||50;
+  const bs=getBrawlerStats(mode,map);
+  const el=document.getElementById('tm-content');
+  if(!Object.keys(bs).length){el.innerHTML='<div class="no-picks">No data. Select a mode first.</div>';return;}
+  const totalPicks=Object.values(bs).reduce((a,s)=>a+s.picks,0);
+  const eligible=Object.entries(bs).filter(e=>e[1].picks>=minP);
+  if(!eligible.length){el.innerHTML='<div class="no-picks">Not enough data — lower min picks.</div>';return;}
+  const scored=eligible.map(e=>{
+    const [name,s]=e;
+    return {name,bwr:bayesWR(s.wins,s.losses),picks:s.picks,pickPct:s.picks/totalPicks};
+  }).sort((a,b)=>b.bwr-a.bwr);
+  const n=scored.length;
+  function getTier(i){const p=i/n;if(p<.08)return'S';if(p<.22)return'A';if(p<.45)return'B';if(p<.68)return'C';if(p<.85)return'D';return'F';}
+  const tg={S:[],A:[],B:[],C:[],D:[],F:[]};
+  scored.forEach((b,i)=>tg[getTier(i)].push(b));
+  el.innerHTML='<div style="margin-bottom:8px;font-family:var(--mono);font-size:.65rem;color:var(--text3)">'
+    +(map?map:fmtMode(mode)+' — All Maps')+' | min '+minP+' picks | '+eligible.length+' brawlers</div>'
+    +['S','A','B','C','D','F'].map(tier=>{
+      const brawlers=tg[tier];if(!brawlers.length)return'';
+      return '<div style="display:flex;gap:0;margin-bottom:4px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;min-height:46px">'
+        +'<div style="width:40px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-size:1.3rem;font-weight:900;background:'+TIER_BG[tier]+';color:'+TIER_COLORS[tier]+'">'+tier+'</div>'
+        +'<div style="flex:1;display:flex;flex-wrap:wrap;gap:3px;padding:5px;background:'+TIER_BG[tier]+'18;border-left:1px solid var(--border)">'
+        +brawlers.map(b=>'<div style="display:flex;align-items:center;gap:4px;border:1px solid var(--border2);border-radius:3px;padding:2px 7px;background:var(--bg3)" title="WR: '+(b.bwr*100).toFixed(1)+'% | '+b.picks+' picks">'
+          +'<span style="font-family:var(--display);font-weight:700;font-size:.78rem">'+b.name+'</span>'
+          +'<span style="font-family:var(--mono);font-size:.58rem;color:'+wrColor(b.bwr)+'">'+(b.bwr*100).toFixed(1)+'%</span></div>').join('')
+        +'</div></div>';
+    }).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SYNERGY
+// ─────────────────────────────────────────────────────────────────────────────
+function initSynergy(){
+  renderSynergy();
+  document.getElementById('syn-apply').addEventListener('click',renderSynergy);
+  document.getElementById('syn-search').addEventListener('keydown',e=>{if(e.key==='Enter')renderSynergy();});
+  document.getElementById('syn-mode').addEventListener('change',async function(){
+    const mode=this.value.split('|')[0];
+    if(mode!=='all') await loadModeData(mode);
+    const mapEl=document.getElementById('syn-map');
+    mapEl.innerHTML='<option value="">All Maps</option>';
+    const allM=(META.maps&&META.maps[mode])||[];
+    const actM=ACTIVE_MAPS[mode]||null;
+    const maps=actM?allM.filter(x=>actM.includes(x)):allM;
+    maps.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mapEl.appendChild(o);});
+    renderSynergy();
+  });
+  document.getElementById('syn-map').addEventListener('change',renderSynergy);
+}
+function renderSynergy(){
+  const mode=document.getElementById('syn-mode').value.split('|')[0];
+  const map=document.getElementById('syn-map').value||'';
+  const minG=parseInt(document.getElementById('syn-min').value)||20;
+  const search=document.getElementById('syn-search').value.toUpperCase().trim();
+  const pairs=getPairStats(mode,map);
+  const table=document.getElementById('syn-table');
+  const allB=new Set();
+  Object.keys(pairs).forEach(a=>{allB.add(a);Object.keys(pairs[a]).forEach(b=>allB.add(b));});
+  const cols=[...allB].sort();let rows=[...allB].sort();
+  if(search) rows=rows.filter(b=>b.includes(search));
+  if(!rows.length){table.innerHTML='<tr><td style="padding:18px;color:var(--text3);font-family:var(--mono)">No synergy data. Select a mode first.</td></tr>';return;}
+  let html='<thead><tr><th>+ally</th>';
+  cols.forEach(c=>html+='<th title="'+c+'">'+(c.length>8?c.slice(0,8)+'…':c)+'</th>');
+  html+='</tr></thead><tbody>';
+  rows.forEach(row=>{
+    html+='<tr><th>'+row+'</th>';
+    cols.forEach(col=>{
+      if(row===col){html+='<td class="self">—</td>';return;}
+      const rec=pairs[row]&&pairs[row][col]?pairs[row][col]:null;
+      const tot=rec?rec.wins+rec.losses:0;
+      if(!rec||tot<minG){html+='<td class="nd" title="'+tot+' games">·</td>';return;}
+      const wr=rec.wins/tot,pct=Math.round(wr*100);
+      const t=Math.max(0,Math.min(1,(wr-.35)/.30));
+      const rr=Math.round(239+(34-239)*t),gg=Math.round(68+(197-68)*t),bb=Math.round(68+(94-68)*t);
+      const bg='rgba('+rr+','+gg+','+bb+','+(0.1+Math.abs(wr-.5)*.9)+')';
+      const fc=wr>=.55?'var(--green)':wr<=.45?'var(--red)':'var(--text)';
+      html+='<td style="background:'+bg+';color:'+fc+'" title="'+row+' + '+col+': '+tot+' games">'+pct+'%</td>';
+    });
+    html+='</tr>';
+  });
+  html+='</tbody>';
+  table.innerHTML=html;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMP BUILDER
+// ─────────────────────────────────────────────────────────────────────────────
+function initCompBuilder(){
+  const brawlers=allBrawlers();
+  ['comp-b1','comp-b2'].forEach(id=>{
+    const el=document.getElementById(id);
+    const isB2=id==='comp-b2';
+    el.innerHTML=(isB2?'<option value="">Any</option>':'<option value="">Select brawler</option>')
+      +brawlers.map(b=>'<option value="'+b+'">'+b+'</option>').join('');
+  });
+  document.getElementById('comp-go').addEventListener('click',runCompBuilder);
+  document.getElementById('comp-mode').addEventListener('change',async function(){
+    const mode=this.value.split('|')[0];if(mode!=='all')await loadModeData(mode);
+    const mapEl=document.getElementById('comp-map');
+    mapEl.innerHTML='<option value="">All Maps</option>';
+    const allM=(META.maps&&META.maps[mode])||[];
+    const actM=ACTIVE_MAPS[mode]||null;
+    const maps=actM?allM.filter(x=>actM.includes(x)):allM;
+    maps.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;mapEl.appendChild(o);});
+  });
+}
+function getPairWR(a,b,pairs){
+  const rec=(pairs[a]&&pairs[a][b])||(pairs[b]&&pairs[b][a]);
+  if(!rec||rec.picks<20) return null;
+  return rec.wins/rec.picks;
+}
+function runCompBuilder(){
+  const b1=document.getElementById('comp-b1').value;
+  const b2=document.getElementById('comp-b2').value;
+  const mode=document.getElementById('comp-mode').value.split('|')[0];
+  const map=document.getElementById('comp-map').value||'';
+  const el=document.getElementById('comp-results');
+  if(!b1){el.innerHTML='<div class="no-picks">Select at least one brawler.</div>';return;}
+  const bs=getBrawlerStats(mode,map);
+  const pairs=getPairStats(mode,map);
+  const fixed=b2?[b1,b2]:[b1];
+  const pool=allBrawlers().filter(b=>!fixed.includes(b));
+  if(!Object.keys(pairs).length){el.innerHTML='<div class="no-picks">No pair data. Select a specific mode.</div>';return;}
+  let candidates=[];
+  if(fixed.length===2){
+    pool.forEach(b3=>{
+      const p12=getPairWR(b1,b2,pairs),p13=getPairWR(b1,b3,pairs),p23=getPairWR(b2,b3,pairs);
+      const valid=[p12,p13,p23].filter(x=>x!==null);
+      if(!valid.length) return;
+      const syn=valid.reduce((a,b)=>a+b,0)/valid.length;
+      const bwr=(rawWR(b1,bs)+rawWR(b2,bs)+rawWR(b3,bs))/3;
+      candidates.push({comp:[b1,b2,b3],score:.6*syn+.4*bwr,syn,bwr});
+    });
+  } else {
+    for(let i=0;i<pool.length;i++) for(let j=i+1;j<pool.length;j++){
+      const b2c=pool[i],b3c=pool[j];
+      const p12=getPairWR(b1,b2c,pairs),p13=getPairWR(b1,b3c,pairs),p23=getPairWR(b2c,b3c,pairs);
+      const valid=[p12,p13,p23].filter(x=>x!==null);
+      if(valid.length<2) continue;
+      const syn=valid.reduce((a,b)=>a+b,0)/valid.length;
+      const bwr=(rawWR(b1,bs)+rawWR(b2c,bs)+rawWR(b3c,bs))/3;
+      candidates.push({comp:[b1,b2c,b3c],score:.6*syn+.4*bwr,syn,bwr});
+    }
+  }
+  candidates.sort((a,b)=>b.score-a.score);candidates=candidates.slice(0,20);
+  if(!candidates.length){el.innerHTML='<div class="no-picks">Not enough pair data.</div>';return;}
+  el.innerHTML='<div style="display:flex;flex-direction:column;gap:5px">'
+    +candidates.map((c,i)=>{
+      const sp=(c.syn*100).toFixed(1),wp=(c.bwr*100).toFixed(1),sc=(c.score*100).toFixed(1);
+      return '<div class="comp-row">'
+        +'<span style="font-family:var(--mono);font-size:.62rem;color:var(--text3);min-width:18px">#'+(i+1)+'</span>'
+        +'<div style="flex:1;display:flex;gap:7px;flex-wrap:wrap">'
+        +c.comp.map((b,bi)=>'<span style="font-family:var(--display);font-weight:800;font-size:.95rem;color:'+(fixed.includes(b)?'var(--gold)':'var(--text)')+'">'
+          +(bi>0?'<span style="color:var(--text3);margin-right:5px">+</span>':'')+b+'</span>').join('')
+        +'</div>'
+        +'<div style="display:flex;gap:10px;flex-shrink:0">'
+        +'<div style="text-align:center"><div style="font-family:var(--mono);font-size:.5rem;color:var(--text3)">SYN</div><div style="font-family:var(--mono);font-size:.72rem;font-weight:700;color:'+wrColor(c.syn)+'">'+sp+'%</div></div>'
+        +'<div style="text-align:center"><div style="font-family:var(--mono);font-size:.5rem;color:var(--text3)">WR</div><div style="font-family:var(--mono);font-size:.72rem;font-weight:700;color:'+wrColor(c.bwr)+'">'+wp+'%</div></div>'
+        +'<div style="text-align:center"><div style="font-family:var(--mono);font-size:.5rem;color:var(--text3)">SCORE</div><div style="font-family:var(--mono);font-size:.72rem;font-weight:700;color:var(--gold)">'+sc+'</div></div>'
+        +'</div></div>';
+    }).join('')+'</div>';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB NAVIGATION
+// ─────────────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t=>{t.classList.remove('active');t.style.display='none';});
+    tab.classList.add('active');
+    const id='tab-'+tab.dataset.tab;
+    const target=document.getElementById(id);
+    if(target){target.classList.add('active');target.style.display='flex';}
+    if(META){
+      if(tab.dataset.tab==='stats')   renderStats();
+      if(tab.dataset.tab==='matchup') renderMatchup();
+      if(tab.dataset.tab==='overrides') renderOverridesTab();
+      if(tab.dataset.tab==='tiermap') renderMapTierList();
+      if(tab.dataset.tab==='synergy') renderSynergy();
+    }
+  });
+});
+
+document.addEventListener('DOMContentLoaded',()=>{ loadData(); });
+</script>
+</body>
+</html>
